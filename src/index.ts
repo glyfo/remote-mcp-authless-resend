@@ -2,69 +2,109 @@ import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { renderHomePage } from './home';
+import { Resend } from 'resend';
 
 // Environment interface with necessary bindings
 export interface Env {
-	MCP_OBJECT: DurableObjectNamespace;
+  MCP_OBJECT: DurableObjectNamespace;
+  RESEND_API_KEY: string; // Resend API key as an environment variable
+}
 
-  }
-  
-  interface Context {
-	// Add context properties if needed
-  }
+interface Context {
+  // Add context properties if needed
+}
 
-  type Bindings = Env & {};
-  
-  // Props passed to the Durable Object
-  type Props = {};
-  
-  // State maintained by the Durable Object
-  type State = null;
+type Bindings = Env & {};
+
+// Props passed to the Durable Object
+type Props = {};
+
+// State maintained by the Durable Object
+type State = {
+  resend: Resend | null;
+};
 
 /**
- * Calculator MCP Agent using Hono framework
+ * MailSender Agent using the Resend SDK with MCP
  */
-export class CalculatorMCP extends McpAgent<Bindings, State, Props> {
-
+export class MailSender extends McpAgent<Bindings, State, Props> {
   server = new McpServer({
-    name: "Calculator",
+    name: "MailSender",
     version: "1.0.0",
   });
 
   async init() {
-    // Register calculator tool with multiple operations
+    // Initialize Resend client
+    this.state = {
+      resend: new Resend(this.env.RESEND_API_KEY)
+    };
+
+    // Register simplified sendMail tool with just to, subject, and body
     this.server.tool(
-      "calculate",
+      "sendMail",
       {
-        operation: z.enum(["add", "subtract", "multiply", "divide"]),
-        a: z.number(),
-        b: z.number(),
+        to: z.string().email().or(z.array(z.string().email())), // Keep the to parameter
+        subject: z.string(),
+        body: z.string(),
       },
-      async ({ operation, a, b }) => {
-        let result: number;
-        
-        switch (operation) {
-          case "add":
-            result = a + b;
-            break;
-          case "subtract":
-            result = a - b;
-            break;
-          case "multiply":
-            result = a * b;
-            break;
-          case "divide":
-            if (b === 0) {
-              return {
-                content: [{ type: "text", text: "Error: Cannot divide by zero" }],
-              };
-            }
-            result = a / b;
-            break;
+      async ({ to, subject, body }) => {
+        try {
+          if (!this.state.resend) {
+            return {
+              content: [{ type: "text", text: "Error: Resend client not initialized" }],
+            };
+          }
+
+          const defaultFrom = "noreply@yourdomain.com"; // Set your default from address
+          
+          const emailOptions = {
+            from: defaultFrom,
+            to,
+            subject,
+            text: body
+          };
+
+          const { data, error } = await this.state.resend.emails.send(emailOptions);
+          
+          if (error) {
+            return {
+              content: [{ type: "text", text: `Error: ${error.message}` }],
+            };
+          }
+          
+          return {
+            content: [{ 
+              type: "text", 
+              text: `Email sent successfully. ID: ${data.id}` 
+            }],
+          };
+        } catch (error) {
+          return {
+            content: [{ 
+              type: "text", 
+              text: `Error sending email: ${error.message}` 
+            }],
+          };
         }
-        
-        return { 
-          content: [{ type: "text", text: String(result) }] 
+      }
+    );
+
+    // Add a tool to verify email configuration
+    this.server.tool(
+      "verifyEmailConfig",
+      {},
+      async () => {
+        if (!this.state.resend) {
+          return {
+            content: [{ type: "text", text: "Error: Resend client not initialized" }],
+          };
+        }
+
+        return {
+          content: [{ 
+            type: "text", 
+            text: "Email configuration is valid and ready to use." 
+          }],
         };
       }
     );
@@ -76,11 +116,11 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/sse" || url.pathname === "/sse/message") {
       // @ts-ignore
-      return CalculatorMCP.serveSSE("/sse").fetch(request, env, ctx);
+      return MailSender.serveSSE("/sse").fetch(request, env, ctx);
     }
     if (url.pathname === "/mcp") {
       // @ts-ignore
-      return CalculatorMCP.serve("/mcp").fetch(request, env, ctx);
+      return MailSender.serve("/mcp").fetch(request, env, ctx);
     }
     if (url.pathname === "/") {
       return renderHomePage({ req: { raw: request }, env, executionCtx: ctx });
