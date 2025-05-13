@@ -54,10 +54,7 @@ export class MailSender extends McpAgent<Env, State, {}> {
       return;
     }
 
-    try {
-      // Initialize Resend client
-      this.setState({ resend: new Resend(this.env.RESEND_API_KEY) });
-      
+    try {      
       // Register sendMail tool
       this.server.tool(
         "sendMail",
@@ -71,15 +68,7 @@ export class MailSender extends McpAgent<Env, State, {}> {
           from: z.string().email().optional().describe("Sender email (optional)")
         },
         async (args, extra) => {
-          const { to, subject, body, from } = args;
-          
-          // Check if Resend client is initialized
-          if (!this.state?.resend) {
-            return {
-              content: [{ type: "text" as const, text: "Error: Email service not initialized" }],
-              isError: true
-            };
-          }
+          const { to, subject, body, from } = args;         
 
           try {
             // Prepare email options
@@ -90,20 +79,31 @@ export class MailSender extends McpAgent<Env, State, {}> {
               text: body
             };
 
-            // Send email using Resend with proper type handling
-            const result: ResendResponse = await this.state.resend.emails.send(emailOptions);
-            
+            // Create Resend instance
+          const resend = new Resend(this.env.RESEND_API_KEY);
+          console.debug("Resend instance created");
+          const { data, error } = await resend.emails.send({
+            from: "noreply@send.glyfo.com",
+            to,
+            subject,
+            text: body,
+          });
+
             // Return appropriate response based on result
-            if (result.error) {
+            if (error) {
               return {
-                content: [{ type: "text" as const, text: `Error: Failed to send email: ${result.error.message}` }],
+                content: [{ type: "text" as const, text: `Error: Failed to send email: ${error.message}` }],
                 isError: true
               };
             }
             
+          // Fix: Add null check for data before accessing data.id
+          if (!data) {
+            console.warn("Email sent but no ID was returned");
             return {
-              content: [{ type: "text" as const, text: `Email sent successfully. ID: ${result.data?.id || 'unknown'}` }]
+              content: [{ type: "text", text: `Email sent but no ID was returned` }],
             };
+          }
           } catch (error) {
             // Handle any exceptions
             return {
