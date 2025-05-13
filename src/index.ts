@@ -43,7 +43,10 @@ export class MailSender extends McpAgent<Env, State, {}> {
     version: "1.0.0"
   });
 
+  private resendClient: Resend | null = null;
+
   async init() {
+    console.log("MailSender._init - Starting initialization");
 
     // Validate API key
     if (!this.env.RESEND_API_KEY) {
@@ -51,7 +54,11 @@ export class MailSender extends McpAgent<Env, State, {}> {
       return;
     }
 
-    try {      
+    try {
+      // Initialize Resend client
+      this.resendClient = new Resend(this.env.RESEND_API_KEY);
+      console.log("Resend client initialized successfully");
+      
       // Register sendMail tool
       this.server.tool(
         "sendMail",
@@ -61,55 +68,82 @@ export class MailSender extends McpAgent<Env, State, {}> {
           body: z.string()
         }, 
         async ({ to, subject, body }) => {       
+          console.log(`Attempting to send email to: ${to}`);
 
           try {
+            // Verify client is initialized
+            if (!this.resendClient) {
+              console.error("Resend client not initialized");
+              return {
+                content: [{ type: "text" as const, text: "Error: Email service not properly initialized" }],
+                isError: true
+              };
+            }
 
-            // Create Resend instance
-          const resend = new Resend(this.env.RESEND_API_KEY);
-          console.debug("Resend instance created");
-          const { data, error } = await resend.emails.send({
-            from: "noreply@send.glyfo.com",
-            to,
-            subject,
-            text: body,
-          });
+            // Send email
+            const { data, error } = await this.resendClient.emails.send({
+              from: "noreply@send.glyfo.com",
+              to,
+              subject,
+              text: body,
+            });
 
             // Return appropriate response based on result
             if (error) {
+              console.error(`Email send error: ${error.message}`);
               return {
                 content: [{ type: "text" as const, text: `Error: Failed to send email: ${error.message}` }],
                 isError: true
               };
             }
             
-          // Fix: Add null check for data before accessing data.id
-          if (!data) {
-            console.warn("Email sent but no ID was returned");
+            // Check for missing data
+            if (!data) {
+              console.warn("Email sent but no ID was returned");
+              return {
+                content: [{ type: "text" as const, text: `Email sent but no ID was returned` }],
+              };
+            }
+
+            // Success case
+            console.log(`Email sent successfully with ID: ${data.id}`);
             return {
-              content: [{ type: "text", text: `Email sent but no ID was returned` }],
+              content: [{ type: "text" as const, text: `Email sent successfully with ID: ${data.id}` }],
             };
-          }
           } catch (error) {
             // Handle any exceptions
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(`Exception during email send: ${errorMessage}`);
             return {
               content: [{ 
                 type: "text" as const, 
-                text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+                text: `Error: ${errorMessage}`
               }],
               isError: true
             };
           }
         }
       );
+
+      console.log("MailSender._init - Initialization completed successfully");
     } catch (error) {
-      console.error("Failed to initialize Resend client:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`Failed to initialize Resend client: ${errorMessage}`);
+      throw error; // Re-throw to indicate initialization failure
     }
+  }
+
+  // Helper method to check if the service is properly initialized
+  isReady() {
+    return !!this.resendClient;
   }
 }
 
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
+    
+    // Standard routes
     if (url.pathname === "/sse" || url.pathname === "/sse/message") {
       // @ts-ignore
       return MailSender.serveSSE("/sse").fetch(request, env, ctx);
@@ -121,6 +155,6 @@ export default {
     if (url.pathname === "/") {
       return renderHomePage({ req: { raw: request }, env, executionCtx: ctx });
     }
-    return new Response("Not found", { status: 404 });
-  },
+    
+    }
 };
