@@ -2,6 +2,7 @@ import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Resend } from 'resend';
+import { renderHomePage } from './home';
 
 // Environment interface with necessary bindings
 export interface Env {
@@ -122,10 +123,20 @@ export class MailSender extends McpAgent<Env, State, {}> {
   }
 }
 
-// Export default handler for routing - only supporting MCP endpoint
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    // No path needed for McpAgent.serve() as we're only supporting MCP endpoint
-    return MailSender.serve().fetch(request, env, ctx);
+    const url = new URL(request.url);
+    if (url.pathname === "/sse" || url.pathname === "/sse/message") {
+      // @ts-ignore
+      return MailSender.serveSSE("/sse").fetch(request, env, ctx);
+    }
+    if (url.pathname === "/mcp") {
+      // @ts-ignore
+      return MailSender.serve("/mcp").fetch(request, env, ctx);
+    }
+    if (url.pathname === "/") {
+      return renderHomePage({ req: { raw: request }, env, executionCtx: ctx });
+    }
+    return new Response("Not found", { status: 404 });
   },
 };
