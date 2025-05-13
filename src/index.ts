@@ -10,55 +10,79 @@ export interface Env {
   RESEND_API_KEY: string;
 }
 
-// Simplified State with proper typing
+// State interface with Resend client
 type State = {
   resend: Resend | null;
 };
 
-// Resend API response type for better type safety
+// Resend API response types - updated to match actual API
+interface CreateEmailResponseSuccess {
+  id: string;
+}
+
+interface ErrorResponse {
+  message: string;
+  name?: string;
+  code?: string;
+}
+
 type ResendResponse = {
-  data?: { id: string };
-  error?: { message: string, statusCode: number };
+  data: CreateEmailResponseSuccess | null;
+  error: ErrorResponse | null;
 };
 
 /**
  * MailSender Agent using the Resend SDK with MCP
  */
 export class MailSender extends McpAgent<Env, State, {}> {
-  server = new McpServer({
-    name: "MailSender",
-    version: "1.0.0",
-  });
+  // Define initial state
+  initialState = { resend: null };
+  
+  // Define server property
+  server!: McpServer;
 
   async init() {
-    // Validate API key and initialize Resend client
+    // Initialize server
+    this.server = new McpServer({
+      name: "MailSender",
+      version: "1.0.0",
+    });
+
+    // Validate API key
     if (!this.env.RESEND_API_KEY) {
       console.error("Missing RESEND_API_KEY environment variable");
-      this.state = { resend: null };
       return;
     }
 
     try {
-      this.state = { resend: new Resend(this.env.RESEND_API_KEY) };
+      // Initialize Resend client
+      this.setState({ resend: new Resend(this.env.RESEND_API_KEY) });
       
-      // Register sendMail tool with proper validation
+      // Register sendMail tool
       this.server.tool(
         "sendMail",
         {
           to: z.union([
-            z.string().email(),
+            z.string().email(), 
             z.array(z.string().email()).min(1)
           ]).describe("Email recipient(s)"),
           subject: z.string().min(1).describe("Email subject"),
           body: z.string().min(1).describe("Email content"),
           from: z.string().email().optional().describe("Sender email (optional)")
         },
-        async ({ to, subject, body, from }) => {
-          if (!this.validateResendClient()) {
-            return this.createErrorResponse("Email service not initialized");
+        async (args, extra) => {
+          const { to, subject, body, from } = args;
+          
+          // Check if Resend client is initialized
+          if (!this.state?.resend) {
+            return {
+              content: [{ type: "text" as const, text: "Error: Email service not initialized" }],
+              isError: true
+            };
           }
 
           try {
+            // Prepare email options
             const emailOptions = {
               from: from || "noreply@yourdomain.com",
               to,
@@ -66,39 +90,41 @@ export class MailSender extends McpAgent<Env, State, {}> {
               text: body
             };
 
-            const result = await this.state.resend!.emails.send(emailOptions) as ResendResponse;
+            // Send email using Resend with proper type handling
+            const result: ResendResponse = await this.state.resend.emails.send(emailOptions);
             
-            return result.error
-              ? this.createErrorResponse(`Failed to send email: ${result.error.message}`)
-              : this.createSuccessResponse(`Email sent successfully. ID: ${result.data?.id}`);
+            // Return appropriate response based on result
+            if (result.error) {
+              return {
+                content: [{ type: "text" as const, text: `Error: Failed to send email: ${result.error.message}` }],
+                isError: true
+              };
+            }
+            
+            return {
+              content: [{ type: "text" as const, text: `Email sent successfully. ID: ${result.data?.id || 'unknown'}` }]
+            };
           } catch (error) {
-            return this.createErrorResponse(`Error sending email: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            // Handle any exceptions
+            return {
+              content: [{ 
+                type: "text" as const, 
+                text: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+              }],
+              isError: true
+            };
           }
         }
       );
-
+      
       // Email verification tool removed as requested
     } catch (error) {
       console.error("Failed to initialize Resend client:", error);
-      this.state = { resend: null };
     }
-  }
-
-  // Helper methods for consistent responses
-  private validateResendClient(): boolean {
-    return !!this.state?.resend;
-  }
-
-  private createErrorResponse(message: string) {
-    return { content: [{ type: "text", text: `Error: ${message}` }] };
-  }
-
-  private createSuccessResponse(message: string) {
-    return { content: [{ type: "text", text: message }] };
   }
 }
 
-// Clean export with route handling
+// Export default handler for routing
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
