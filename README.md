@@ -1,75 +1,70 @@
-# Remote MCP Server on Cloudflare Workers (Without Auth)
+# Remote MCP Email Sender Agent on Cloudflare Workers
 
-This project provides a ready-to-deploy Model Context Protocol (MCP) server running on Cloudflare Workers without requiring authentication. It enables AI assistants to access custom tools and capabilities through the standardized MCP interface.
+This project provides a ready-to-deploy Model Context Protocol (MCP) server running on Cloudflare Workers that enables AI assistants to send emails using the [Resend](https://resend.com) email service. It implements the standardized MCP interface for seamless integration with Claude and other AI assistants.
+
+## Features
+
+- **Email Sending Capability**: Send emails directly from your AI assistant
+- **Serverless Architecture**: Runs on Cloudflare Workers without additional infrastructure
+- **MCP Compatibility**: Follows the Model Context Protocol standard for AI tool integration
+- **TypeScript Implementation**: Fully typed and maintainable codebase
 
 ## Quick Start
 
-Create and deploy the MCP server using the command line:
+Create and deploy the Email Sender MCP server using the command line:
 
 ```bash
 # Create a new project from the template
-pnpm create cloudflare@latest -- remote-mcp-authless --template=cloudflare/ai/demos/remote-mcp-authless
+pnpm create cloudflare@latest -- mcp-email-sender --template=cloudflare/ai/demos/remote-mcp-authless
 
 # Navigate to your new project
-cd remote-mcp-authless
+cd mcp-email-sender
+
+# Copy the MailSender implementation to your project
+# (Replace src/index.ts with the MailSender code)
+
+# Set your Resend API key as a secret
+npx wrangler secret put RESEND_API_KEY
 
 # Deploy to Cloudflare Workers
-pnpm remote-mcp-authless
+pnpm run deploy
 ```
 
-After deployment, your server will be available at:
+After deployment, your email sender service will be available at:
 
 ```
-remote-mcp-authless.<your-account>.workers.dev
+mcp-email-sender.<your-account>.workers.dev
 ```
 
-## Customizing Your MCP Server
+## Configuration
 
-### Adding Custom Tools
+### Environment Variables
 
-To add your own tools to the MCP server:
+The following environment variables must be configured for proper operation:
 
-1. Open `src/index.ts`
-2. Define each tool inside the `init()` method using the `this.server.tool(...)` syntax
-3. Deploy your changes with `pnpm run deploy`
+- `RESEND_API_KEY`: Your API key from [Resend](https://resend.com)
 
-Example of adding a custom tool:
+You can set this using Wrangler:
 
-```typescript
-init() {
-  // Built-in calculator tool
-  this.server.tool({
-    name: "calculator",
-    description: "Evaluates mathematical expressions",
-    parameters: {
-      type: "object",
-      properties: {
-        expression: {
-          type: "string",
-          description: "The mathematical expression to evaluate"
-        }
-      },
-      required: ["expression"]
-    },
-    handler: async ({ expression }) => {
-      // Tool implementation
-      return { result: eval(expression) };
-    }
-  });
+```bash
+npx wrangler secret put RESEND_API_KEY
+```
 
-  // Add your custom tool here
-  this.server.tool({
-    name: "my_custom_tool",
-    description: "Description of what your tool does",
-    parameters: {
-      // Define your tool's parameters
-    },
-    handler: async (params) => {
-      // Your tool's implementation
-      return { result: "Tool output" };
-    }
-  });
-}
+## Using the Email Sender
+
+### Available Tool: sendMail
+
+The MCP server provides a `sendMail` tool with the following parameters:
+
+- `to`: Email recipient(s) - can be a single email address or an array of email addresses
+- `subject`: Email subject line
+- `body`: Email content (plain text)
+- `from`: (Optional) Sender email address. If not provided, defaults to "noreply@yourdomain.com"
+
+### Example Usage with Claude
+
+```
+Use the sendMail tool to send an email to test@example.com with the subject "Hello from Claude" and the message "This is a test email sent via the MailSender MCP agent."
 ```
 
 ## Connecting to Your MCP Server
@@ -79,12 +74,12 @@ init() {
 The Cloudflare AI Playground provides a web interface for interacting with your MCP server:
 
 1. Go to [https://playground.ai.cloudflare.com/](https://playground.ai.cloudflare.com/)
-2. Enter your deployed MCP server URL (e.g., `remote-mcp-server-authless.<your-account>.workers.dev/sse`)
-3. Start using your custom tools within the playground
+2. Enter your deployed MCP server URL (e.g., `mcp-email-sender.<your-account>.workers.dev/sse`)
+3. Start using the email sending tools within the playground
 
-### Connecting Claude Desktop (or other MCP clients)
+### Connecting Claude Desktop
 
-Connect local MCP clients to your remote MCP server using the [mcp-remote proxy](https://www.npmjs.com/package/mcp-remote):
+Connect Claude Desktop to your remote MCP server using the [mcp-remote proxy](https://www.npmjs.com/package/mcp-remote):
 
 1. Follow [Anthropic's MCP Quickstart Guide](https://modelcontextprotocol.io/quickstart/user)
 2. In Claude Desktop, go to Settings > Developer > Edit Config
@@ -93,18 +88,18 @@ Connect local MCP clients to your remote MCP server using the [mcp-remote proxy]
 ```json
 {
   "mcpServers": {
-    "calculator": {
+    "emailSender": {
       "command": "npx",
       "args": [
         "mcp-remote",
-        "https://remote-mcp-authless.<your-account>.workers.dev/sse"
+        "https://mcp-email-sender.<your-account>.workers.dev/sse"
       ]
     }
   }
 }
 ```
 
-4. Restart Claude Desktop to activate the tools
+4. Restart Claude Desktop to activate the email tools
 
 ## Development and Testing
 
@@ -130,27 +125,43 @@ Deploy updates to your MCP server:
 pnpm run deploy
 ```
 
-The command output will show the deployed URL:
+## Customizing the Email Sender
 
+### Modifying the Default From Address
+
+To change the default sender email address, update the following line in the `sendMail` tool:
+
+```typescript
+from: from || "noreply@yourdomain.com",
 ```
-Uploaded remote-mcp-authless (x.xx sec)
-Deployed remote-mcp-authless triggers (x.xx sec)
-  https://remote-mcp-authless.<your-account>.workers.dev
+
+### Adding HTML Email Support
+
+The current implementation only supports plain text emails. To add HTML support, you can modify the email options:
+
+```typescript
+const emailOptions = {
+  from: from || "noreply@yourdomain.com",
+  to,
+  subject,
+  text: body,
+  html: htmlBody, // Add HTML body parameter to the tool
+};
 ```
 
 ## Troubleshooting
 
+- **Email Not Sending**: Verify your Resend API key is correctly set as a secret
 - **Connection Issues**: Ensure your Cloudflare Workers URL includes the `/sse` endpoint
-- **CORS Errors**: By default, the server accepts connections from any origin. Modify `src/index.ts` if you need to restrict access
-- **Tool Not Found**: Check that your tool is properly registered in the `init()` method
-- **Deployment Failures**: Verify that you have the correct Cloudflare credentials configured
+- **Tool Not Found**: Check that the tool is properly registered in the `init()` method
+- **Type Errors**: The implementation uses TypeScript interfaces that match Resend's API
 
 ## Additional Resources
 
+- [Resend Documentation](https://resend.com/docs)
 - [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
 - [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
 - [Anthropic Claude MCP Guide](https://docs.anthropic.com/claude/docs/model-context-protocol)
-- [MCP-Remote Proxy Package](https://www.npmjs.com/package/mcp-remote)
 
 ## License
 
