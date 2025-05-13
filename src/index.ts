@@ -35,18 +35,13 @@ type ResendResponse = {
  * MailSender Agent using the Resend SDK with MCP
  */
 export class MailSender extends McpAgent<Env, State, {}> {
-  // Define initial state
-  initialState = { resend: null };
   
-  // Define server property
-  server!: McpServer;
+  server = new McpServer({
+    name: "MailSender",
+    version: "1.0.0"
+  });
 
   async init() {
-    // Initialize server with proper configuration
-    this.server = new McpServer({
-      name: "MailSender",
-      version: "1.0.0"
-    });
 
     // Validate API key
     if (!this.env.RESEND_API_KEY) {
@@ -59,25 +54,13 @@ export class MailSender extends McpAgent<Env, State, {}> {
       this.server.tool(
         "sendMail",
         {
-          to: z.union([
-            z.string().email(), 
-            z.array(z.string().email()).min(1)
-          ]).describe("Email recipient(s)"),
-          subject: z.string().min(1).describe("Email subject"),
-          body: z.string().min(1).describe("Email content"),
-          from: z.string().email().optional().describe("Sender email (optional)")
-        },
-        async (args, extra) => {
-          const { to, subject, body, from } = args;         
+          to: z.string().email(),
+          subject: z.string(),
+          body: z.string()
+        }, 
+        async ({ to, subject, body }) => {       
 
           try {
-            // Prepare email options
-            const emailOptions = {
-              from: from || "noreply@yourdomain.com",
-              to,
-              subject,
-              text: body
-            };
 
             // Create Resend instance
           const resend = new Resend(this.env.RESEND_API_KEY);
