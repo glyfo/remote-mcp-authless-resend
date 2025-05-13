@@ -45,6 +45,23 @@ export class MailSender extends McpAgent<Env, State, {}> {
 
   private resendClient: Resend | null = null;
 
+  constructor(state: DurableObjectState, env: Bindings, ctx: ExecutionContext) {
+    super(state, env);
+    
+    // More robust check for API key existence
+    const hasResendKey = typeof env.RESEND_API_KEY === 'string' && env.RESEND_API_KEY.trim() !== '';
+    
+    console.info("MailSender Durable Object constructed", { 
+      objectId: state.id.toString(),
+      hasResendKey
+    });
+    
+    // Optional: Add validation and error handling
+    if (!hasResendKey) {
+      console.warn("RESEND_API_KEY is missing or empty - email functionality may not work");
+    }
+  }
+
   async init() {
     console.log("MailSender._init - Starting initialization");
 
