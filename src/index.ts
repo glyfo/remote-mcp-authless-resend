@@ -77,14 +77,7 @@ export class MailSender extends McpAgent<Env, State, {}> {
         }
       );
 
-      // Add email config verification tool
-      this.server.tool(
-        "verifyEmailConfig",
-        {},
-        async () => this.validateResendClient()
-          ? this.createSuccessResponse("Email configuration is valid and ready to use.")
-          : this.createErrorResponse("Email service not initialized")
-      );
+      // Email verification tool removed as requested
     } catch (error) {
       console.error("Failed to initialize Resend client:", error);
       this.state = { resend: null };
