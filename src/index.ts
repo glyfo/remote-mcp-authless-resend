@@ -1,7 +1,6 @@
 import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { renderHomePage } from './home';
 import { Resend } from 'resend';
 
 // Environment interface with necessary bindings
@@ -15,7 +14,7 @@ type State = {
   resend: Resend | null;
 };
 
-// Resend API response types - updated to match actual API
+// Resend API response types
 interface CreateEmailResponseSuccess {
   id: string;
 }
@@ -42,10 +41,11 @@ export class MailSender extends McpAgent<Env, State, {}> {
   server!: McpServer;
 
   async init() {
-    // Initialize server
+    // Initialize server with proper configuration
     this.server = new McpServer({
       name: "MailSender",
       version: "1.0.0",
+      methods: ["mcp.listTools", "mcp.invokeTool"],
     });
 
     // Validate API key
@@ -116,27 +116,16 @@ export class MailSender extends McpAgent<Env, State, {}> {
           }
         }
       );
-      
-      // Email verification tool removed as requested
     } catch (error) {
       console.error("Failed to initialize Resend client:", error);
     }
   }
 }
 
-// Export default handler for routing
+// Export default handler for routing - only supporting MCP endpoint
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
-    const url = new URL(request.url);
-    
-    // Route handling with simplified pattern matching
-    switch (url.pathname) {
-      case "/mcp":
-        return MailSender.serve("/mcp").fetch(request, env, ctx);
-      case "/":
-        return renderHomePage({ req: { raw: request }, env, executionCtx: ctx });
-      default:
-        return new Response("Not found", { status: 404 });
-    }
+    // No path needed for McpAgent.serve() as we're only supporting MCP endpoint
+    return MailSender.serve().fetch(request, env, ctx);
   },
 };
