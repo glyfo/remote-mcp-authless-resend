@@ -45,8 +45,7 @@ export class MailSender extends McpAgent<Env, State, {}> {
     // Initialize server with proper configuration
     this.server = new McpServer({
       name: "MailSender",
-      version: "1.0.0",
-      methods: ["mcp.listTools", "mcp.invokeTool"],
+      version: "1.0.0"
     });
 
     // Validate API key
