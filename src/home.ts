@@ -1,10 +1,8 @@
-import { Context } from 'hono';
-
 /**
  * Renders the MailSender MCP home page
  */
-export const renderHomePage = (c: Context) => {
-  return c.html(`
+export const renderHomePage = (c: { req: { raw: Request }, env: any, executionCtx: any }) => {
+  return new Response(`
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -83,5 +81,9 @@ export const renderHomePage = (c: Context) => {
       </div>
     </body>
     </html>
-  `);
+  `, {
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8'
+    }
+  });
 };

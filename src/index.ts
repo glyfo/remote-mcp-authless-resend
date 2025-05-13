@@ -7,124 +7,120 @@ import { Resend } from 'resend';
 // Environment interface with necessary bindings
 export interface Env {
   MCP_OBJECT: DurableObjectNamespace;
-  RESEND_API_KEY: string; // Resend API key as an environment variable
+  RESEND_API_KEY: string;
 }
 
-interface Context {
-  // Add context properties if needed
-}
-
-type Bindings = Env & {};
-
-// Props passed to the Durable Object
-type Props = {};
-
-// State maintained by the Durable Object
+// Simplified State with proper typing
 type State = {
   resend: Resend | null;
+};
+
+// Resend API response type for better type safety
+type ResendResponse = {
+  data?: { id: string };
+  error?: { message: string, statusCode: number };
 };
 
 /**
  * MailSender Agent using the Resend SDK with MCP
  */
-export class MailSender extends McpAgent<Bindings, State, Props> {
+export class MailSender extends McpAgent<Env, State, {}> {
   server = new McpServer({
     name: "MailSender",
     version: "1.0.0",
   });
 
   async init() {
-    // Initialize Resend client
-    this.state = {
-      resend: new Resend(this.env.RESEND_API_KEY)
-    };
+    // Validate API key and initialize Resend client
+    if (!this.env.RESEND_API_KEY) {
+      console.error("Missing RESEND_API_KEY environment variable");
+      this.state = { resend: null };
+      return;
+    }
 
-    // Register simplified sendMail tool with just to, subject, and body
-    this.server.tool(
-      "sendMail",
-      {
-        to: z.string().email().or(z.array(z.string().email())), // Keep the to parameter
-        subject: z.string(),
-        body: z.string(),
-      },
-      async ({ to, subject, body }) => {
-        try {
-          if (!this.state.resend) {
-            return {
-              content: [{ type: "text", text: "Error: Resend client not initialized" }],
-            };
+    try {
+      this.state = { resend: new Resend(this.env.RESEND_API_KEY) };
+      
+      // Register sendMail tool with proper validation
+      this.server.tool(
+        "sendMail",
+        {
+          to: z.union([
+            z.string().email(),
+            z.array(z.string().email()).min(1)
+          ]).describe("Email recipient(s)"),
+          subject: z.string().min(1).describe("Email subject"),
+          body: z.string().min(1).describe("Email content"),
+          from: z.string().email().optional().describe("Sender email (optional)")
+        },
+        async ({ to, subject, body, from }) => {
+          if (!this.validateResendClient()) {
+            return this.createErrorResponse("Email service not initialized");
           }
 
-          const defaultFrom = "noreply@yourdomain.com"; // Set your default from address
-          
-          const emailOptions = {
-            from: defaultFrom,
-            to,
-            subject,
-            text: body
-          };
-
-          const { data, error } = await this.state.resend.emails.send(emailOptions);
-          
-          if (error) {
-            return {
-              content: [{ type: "text", text: `Error: ${error.message}` }],
+          try {
+            const emailOptions = {
+              from: from || "noreply@yourdomain.com",
+              to,
+              subject,
+              text: body
             };
+
+            const result = await this.state.resend!.emails.send(emailOptions) as ResendResponse;
+            
+            return result.error
+              ? this.createErrorResponse(`Failed to send email: ${result.error.message}`)
+              : this.createSuccessResponse(`Email sent successfully. ID: ${result.data?.id}`);
+          } catch (error) {
+            return this.createErrorResponse(`Error sending email: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
-          
-          return {
-            content: [{ 
-              type: "text", 
-              text: `Email sent successfully. ID: ${data.id}` 
-            }],
-          };
-        } catch (error) {
-          return {
-            content: [{ 
-              type: "text", 
-              text: `Error sending email: ${error.message}` 
-            }],
-          };
         }
-      }
-    );
+      );
 
-    // Add a tool to verify email configuration
-    this.server.tool(
-      "verifyEmailConfig",
-      {},
-      async () => {
-        if (!this.state.resend) {
-          return {
-            content: [{ type: "text", text: "Error: Resend client not initialized" }],
-          };
-        }
+      // Add email config verification tool
+      this.server.tool(
+        "verifyEmailConfig",
+        {},
+        async () => this.validateResendClient()
+          ? this.createSuccessResponse("Email configuration is valid and ready to use.")
+          : this.createErrorResponse("Email service not initialized")
+      );
+    } catch (error) {
+      console.error("Failed to initialize Resend client:", error);
+      this.state = { resend: null };
+    }
+  }
 
-        return {
-          content: [{ 
-            type: "text", 
-            text: "Email configuration is valid and ready to use." 
-          }],
-        };
-      }
-    );
+  // Helper methods for consistent responses
+  private validateResendClient(): boolean {
+    return !!this.state?.resend;
+  }
+
+  private createErrorResponse(message: string) {
+    return { content: [{ type: "text", text: `Error: ${message}` }] };
+  }
+
+  private createSuccessResponse(message: string) {
+    return { content: [{ type: "text", text: message }] };
   }
 }
 
+// Clean export with route handling
 export default {
   fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
-    if (url.pathname === "/sse" || url.pathname === "/sse/message") {
-      // @ts-ignore
-      return MailSender.serveSSE("/sse").fetch(request, env, ctx);
+    
+    // Route handling with simplified pattern matching
+    switch (url.pathname) {
+      case "/sse":
+      case "/sse/message":
+        return MailSender.serveSSE("/sse").fetch(request, env, ctx);
+      case "/mcp":
+        return MailSender.serve("/mcp").fetch(request, env, ctx);
+      case "/":
+        return renderHomePage({ req: { raw: request }, env, executionCtx: ctx });
+      default:
+        return new Response("Not found", { status: 404 });
     }
-    if (url.pathname === "/mcp") {
-      // @ts-ignore
-      return MailSender.serve("/mcp").fetch(request, env, ctx);
-    }
-    if (url.pathname === "/") {
-      return renderHomePage({ req: { raw: request }, env, executionCtx: ctx });
-    }
-    return new Response("Not found", { status: 404 });
   },
 };
