@@ -10,10 +10,12 @@ export interface Env {
   RESEND_API_KEY: string;
 }
 
-// State interface with Resend client
-type State = {
-  resend: Resend | null;
+type Bindings = Env & {
+  RESEND_API_KEY: string;
 };
+
+// State maintained by the Durable Object
+type State = null;
 
 // Resend API response types
 interface CreateEmailResponseSuccess {
