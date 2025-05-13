@@ -131,9 +131,6 @@ export default {
     
     // Route handling with simplified pattern matching
     switch (url.pathname) {
-      case "/sse":
-      case "/sse/message":
-        return MailSender.serveSSE("/sse").fetch(request, env, ctx);
       case "/mcp":
         return MailSender.serve("/mcp").fetch(request, env, ctx);
       case "/":
